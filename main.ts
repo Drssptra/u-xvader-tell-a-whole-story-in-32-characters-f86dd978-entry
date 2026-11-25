@@ -1,34 +1,97 @@
-// Tell a Whole Story in 32 Characters — make.fun entry.
+// Tell a Whole Story in 32 Characters — make.fun entry (v2, revised).
 //
-// The entry is one Wi-Fi network name that carries a whole divorce in
-// a single SSID. The joke: when the marriage ended, the settlement's
-// most contested asset was not the house or the car — it was the Wi-Fi.
-// One line, no spaces, so a passer-by reading a phone's network list
-// gets the punchline and can fill in the rest: the lawyers, the split,
-// and him, staring at a router that is no longer his.
-import { mkdirSync, writeFileSync } from "node:fs";
+// The Wi-Fi name on the router is the whole proposal. He never bought
+// a ring: the password IS the ring. Whoever reads the network list
+// sees the courtship, the shared flat, and the yes — all in one SSID.
+//
+// This program assembles the entry from its story beats, checks it
+// against the competition gate, and writes it to entry.txt with no
+// trailing newline. Node 22, stdlib only, no network, deterministic.
+
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-const ENTRY = "SheTookTheWiFiInTheDivorce";
-const MAX_CHARS = 32;
+// The story, told beat by beat. Concatenated with no separator, the
+// beats read as one Wi-Fi network name.
+const STORY_BEATS = [
+  "He", // the hero
+  "Proposed", // the act
+  "With", // the twist begins
+  "The", // the object
+  "WiFi", // the modern ring
+  "Password", // the promise
+];
 
-const chars = [...ENTRY].length;
-if (chars < 1 || chars > MAX_CHARS) {
-  throw new Error(
-    `gate: entry must be 1-${MAX_CHARS} characters, got ${chars}`,
-  );
-}
-if (ENTRY.trim().length === 0) {
-  throw new Error("gate: entry must not be only whitespace");
-}
-if (/[\r\n]/.test(ENTRY)) {
-  throw new Error("gate: entry must be a single line of text");
+// The gate, as published in the competition kit: 1-32 UTF-8 characters,
+// a single line, not only whitespace.
+const GATE = Object.freeze({
+  minChars: 1,
+  maxChars: 32,
+  expectedChars: 29,
+});
+
+function assembleEntry(beats) {
+  return beats.join("");
 }
 
-const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
-mkdirSync(outDir, { recursive: true });
-// entry.txt carries the exact entry text with no trailing newline; the
-// gate counts every byte, so nothing extra may ride along. stdout gets
-// the same text plus a newline for a human reading the terminal.
-writeFileSync(join(outDir, "entry.txt"), ENTRY, "utf8");
-process.stdout.write(`${ENTRY}\n`);
+function countChars(text) {
+  return [...text].length;
+}
+
+function findGateProblems(text) {
+  const problems = [];
+  const chars = countChars(text);
+  if (chars < GATE.minChars || chars > GATE.maxChars) {
+    problems.push(
+      `length ${chars} outside ${GATE.minChars}-${GATE.maxChars}`,
+    );
+  }
+  if (chars !== GATE.expectedChars) {
+    problems.push(
+      `expected ${GATE.expectedChars} characters, got ${chars}`,
+    );
+  }
+  // Cross-check: the entry is plain ASCII, so its UTF-8 byte length
+  // must equal its character count; a mismatch means a stray
+  // multi-byte character slipped into a beat.
+  const bytes = new TextEncoder().encode(text).length;
+  if (bytes !== chars) {
+    problems.push(`byte length ${bytes} != char length ${chars}`);
+  }
+  if (text.trim().length === 0) {
+    problems.push("entry is only whitespace");
+  }
+  if (/[\r\n]/.test(text)) {
+    problems.push("entry spans more than one line");
+  }
+  return problems;
+}
+
+async function writeEntry(outDir, text) {
+  await mkdir(outDir, { recursive: true });
+  // No trailing newline: the gate counts every byte in entry.txt.
+  const target = join(outDir, "entry.txt");
+  await writeFile(target, text, "utf8");
+  // Read it back and confirm byte-exactness before reporting success.
+  const written = await readFile(target, "utf8");
+  if (written !== text) {
+    throw new Error("entry.txt does not match the entry text");
+  }
+}
+
+async function main() {
+  const entry = assembleEntry(STORY_BEATS);
+  const problems = findGateProblems(entry);
+  if (problems.length > 0) {
+    throw new Error(`gate failed: ${problems.join("; ")}`);
+  }
+  const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
+  await writeEntry(outDir, entry);
+  // stdout may carry a newline; the file must not.
+  process.stdout.write(`${entry}\n`);
+}
+
+main().catch((error) => {
+  process.stderr.write(`error: ${error.message}\n`);
+  process.exitCode = 1;
+});
